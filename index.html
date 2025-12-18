@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>calculate Cloudflare IPv4 to IPv6</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
+    h1 { text-align: center; }
+    input { width: 100%; padding: 12px; font-size: 18px; box-sizing: border-box; }
+    button { margin-top: 12px; padding: 12px 20px; font-size: 18px; width: 100%; background: #1a73e8; color: white; border: none; cursor: pointer; }
+    button:hover { background: #1557b0; }
+    #result { margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd; font-size: 20px; word-break: break-all; }
+    .copy-btn { margin-top: 10px; padding: 8px 16px; background: #eee; border: 1px solid #ccc; cursor: pointer; }
+    footer { margin-top: 50px; text-align: center; color: #666; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <h1>Cloudflare IPv4 → IPv6 変換ツール</h1>
+  <p>CloudflareのAnycast IPv4アドレスから対応するIPv6を計算します（プレフィックス: 2606:4700::）</p>
+  <input type="text" id="ipv4" placeholder="例: 1.1.1.1 または 104.16.100.200">
+  <button onclick="convert()">変換する</button>
+  <div id="result"></div>
+
+  <footer>
+    Made for Discord IPv6 workaround | <a href="https://support.discord.com/hc/en-us/community/posts/360047840052">参考リクエスト</a>
+  </footer>
+
+  <script>
+    const CF_IP_PREFIX = "2606:4700::";
+
+    function convert() {
+      const input = document.getElementById('ipv4').value.trim();
+      const parts = input.split('.').map(Number);
+
+      if (parts.length !== 4 || parts.some(n => isNaN(n) || n < 0 || n > 255)) {
+        document.getElementById('result').innerHTML = "<span style='color:red;'>無効なIPv4アドレスです</span>";
+        return;
+      }
+
+      let ipv6 = CF_IP_PREFIX;
+      for (let i = 0; i < 4; i++) {
+        if (i === 2) ipv6 += ":";
+        ipv6 += parts[i].toString(16).padStart(2, "0");
+      }
+
+      // 結果表示 + コピーボタン
+      document.getElementById('result').innerHTML = 
+        `<strong>${ipv6}</strong><br>
+         <button class="copy-btn" onclick="navigator.clipboard.writeText('${ipv6}')">クリップボードにコピー</button>`;
+    }
+
+    // Enterキーでも変換
+    document.getElementById('ipv4').addEventListener('keypress', e => {
+      if (e.key === 'Enter') convert();
+    });
+  </script>
+</body>
+</html>
