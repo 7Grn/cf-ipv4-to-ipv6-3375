@@ -15,17 +15,11 @@
     #result { margin-top: 20px; }
     .copy-btn { padding: 6px 12px; background: #eee; border: 1px solid #ccc; cursor: pointer; font-size: 14px; border-radius: 4px; }
     footer { margin-top: 50px; text-align: center; color: #666; font-size: 14px; }
+    .help { font-size: 14px; color: #666; margin-top: 5px; }
 
     /* カスタムモーダル */
-    .modal {
-      display: none;
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;
-    }
-    .modal-content {
-      background: white; padding: 30px; border-radius: 8px; max-width: 500px; width: 90%;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
-    }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
+    .modal-content { background: white; padding: 30px; border-radius: 8px; max-width: 500px; width: 90%; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
     .modal-header { font-size: 20px; font-weight: bold; margin-bottom: 20px; }
     .modal-body { line-height: 1.6; margin-bottom: 20px; }
     .modal-footer { text-align: right; }
@@ -59,8 +53,15 @@
     <option value="https://dns.google/resolve">Google Public DNS (8.8.8.8)</option>
     <option value="https://dns.quad9.net/dns-query">Quad9 Secured (9.9.9.9 - Malwareブロック)</option>
     <option value="https://dns9.quad9.net/dns-query">Quad9 Unsecured (9.9.9.10 - ブロックなし)</option>
+    <option value="https://all.dns.mullvad.net/dns-query">Mullvad DNS (no blocking, プライバシー重視)</option>
+    <option value="https://doh-jp.blahdns.com/dns-query">BlahDNS Japan (adblock, 日本サーバー)</option>
+    <option value="https://dnsforge.de/dns-query">dnsforge.de (ドイツ)</option>
+    <option value="https://doh.applied-privacy.net/query">Applied Privacy DNS (オーストリア, プライバシー重視)</option>
+    <option value="https://doh.seby.io/dns-query">Seby DNS (オーストラリア)</option>
+    <option value="https://doh.libredns.gr/dns-query">LibreDNS (ギリシャ, no logs)</option>
   </select>
-  <input type="text" id="customDoh" placeholder="その他: 任意のDoH URLを入力 (例: https://dns.adguard.com/dns-query)">
+  <input type="text" id="customDoh" placeholder="その他: 任意のDoHベースURLを入力 (例: https://dns.adguard.com/dns-query)">
+  <p class="help">※クエリパラメータ (?name=...&type=A) は自動で付きます。ベースURLだけ入力してください。</p>
   <button id="queryBtn">Aレコード取得 & IPv6変換</button>
 
   <footer>
@@ -72,6 +73,10 @@
     <div class="modal-content">
       <div class="modal-header">DNSクエリ実行の確認</div>
       <div class="modal-body" id="modalMessage"></div>
+      <div style="margin: 20px 0;">
+        <label><input type="checkbox" id="skipToday"> 今日はこのダイアログを再表示しない</label><br><br>
+        <label><input type="checkbox" id="skipForever"> 二度とこのダイアログを表示しない（Cookieが無効になるまで）</label>
+      </div>
       <div class="modal-footer">
         <button class="modal-btn modal-btn-cancel" onclick="closeModal()">キャンセル</button>
         <button class="modal-btn modal-btn-ok" onclick="proceedQuery()">続行</button>
@@ -80,6 +85,31 @@
   </div>
 
   <script>
+    // Cookieヘルパー
+    function setCookie(name, value, days) {
+      let expires = "";
+      if (days) {
+        const date = new Date();
+        if (days === 'today') {
+          date.setHours(23, 59, 59, 999);
+        } else {
+          date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+        }
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + value + expires + "; path=/";
+    }
+
+    function getCookie(name) {
+      const nameEQ = name + "=";
+      const ca = document.cookie.split(';');
+      for (let i = 0; i < ca.length; i++) {
+        let c = ca[i].trim();
+        if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+      }
+      return null;
+    }
+
     const prefixes = {
       "2606:4700::": "2606:4700::",
       "2606:4700:4700::4700": "2606:4700:4700::4700"
@@ -130,26 +160,49 @@
 
     async function proceedQuery() {
       closeModal();
+
+      const skipToday = document.getElementById('skipToday').checked;
+      const skipForever = document.getElementById('skipForever').checked;
+
+      if (skipToday || skipForever) {
+        setCookie('dohConsentSkipped', 'true', skipForever ? 365 : 'today');
+      }
+
       if (pendingQuery) pendingQuery();
     }
 
-    // クエリボタンクリック時
+    // 利用規約リンク
+    const termsLinks = {
+      "https://security.cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
+      "https://cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
+      "https://family.cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
+      "https://dns.google/resolve": ["Google Public DNS", "https://developers.google.com/speed/public-dns/privacy"],
+      "https://dns.quad9.net/dns-query": ["Quad9", "https://quad9.net/privacy/"],
+      "https://dns9.quad9.net/dns-query": ["Quad9", "https://quad9.net/privacy/"],
+      "https://all.dns.mullvad.net/dns-query": ["Mullvad DNS", "https://mullvad.net/en/help/dns-over-https-and-dns-over-tls"],
+      "https://doh-jp.blahdns.com/dns-query": ["BlahDNS", "https://blahdns.com/"],
+      "https://dnsforge.de/dns-query": ["dnsforge.de", "https://dnsforge.de/"],
+      "https://doh.applied-privacy.net/query": ["Applied Privacy", "https://applied-privacy.net/services/dns/"],
+      "https://doh.seby.io/dns-query": ["Seby DNS", "https://dns.seby.io/"],
+      "https://doh.libredns.gr/dns-query": ["LibreDNS", "https://libredns.gr/privacy/"],
+    };
+
     document.getElementById('queryBtn').addEventListener('click', () => {
       const domain = document.getElementById('domainInput').value.trim();
       if (!domain) return alert('ドメインを入力してください');
 
       let providerUrl = document.getElementById('dohProvider').value;
       const custom = document.getElementById('customDoh').value.trim();
-      if (custom) providerUrl = custom;
+      if (custom) {
+        if (!custom.startsWith('https://')) return alert('カスタムDoH URLは https:// で始まるものを入力してください');
+        providerUrl = custom;
+      }
 
-      const termsLinks = {
-        "https://security.cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
-        "https://cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
-        "https://family.cloudflare-dns.com/dns-query": ["Cloudflare Public DNS", "https://developers.cloudflare.com/1.1.1.1/privacy/public-dns-resolver/"],
-        "https://dns.google/resolve": ["Google Public DNS", "https://developers.google.com/speed/public-dns/privacy"],
-        "https://dns.quad9.net/dns-query": ["Quad9", "https://quad9.net/privacy/"],
-        "https://dns9.quad9.net/dns-query": ["Quad9", "https://quad9.net/privacy/"]
-      };
+      // Cookieでスキップ済みなら即実行
+      if (getCookie('dohConsentSkipped') === 'true') {
+        performDNSQuery(providerUrl, domain);
+        return;
+      }
 
       let providerName = custom ? "指定したDNSサービス" : "選択したDNSサービス";
       let termsLink = null;
@@ -167,35 +220,36 @@
 
       showModal(message);
 
-      // 続行されたら実行する関数を保存
-      pendingQuery = async () => {
-        const isGoogle = providerUrl.includes('dns.google');
-        let url = `${providerUrl}?name=${domain}&type=A`;
-
-        try {
-          const headers = isGoogle ? {} : {'accept': 'application/dns-json'};
-          const res = await fetch(url, {headers});
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-
-          const data = await res.json();
-          let ips = [];
-
-          if (isGoogle) {
-            ips = (data.Answer || []).filter(a => a.type === 1).map(a => a.data);
-          } else {
-            ips = (data.Answer || []).filter(a => a.type === 1).map(a => a.data);
-          }
-
-          if (ips.length === 0) return alert('Aレコードが見つかりませんでした（ブロックされている可能性も）');
-
-          document.getElementById('ipv4Input').value = ips.join('\n');
-          alert(`取得したIPv4 (${ips.length}件):\n${ips.join('\n')}\n→ 上の入力欄にセットしました！変換ボタン押してね`);
-          convertMultiple();
-        } catch (e) {
-          alert('クエリ失敗: ' + e.message + '\nURLが正しいか、DoH対応か確認してください');
-        }
-      };
+      pendingQuery = () => performDNSQuery(providerUrl, domain);
     });
+
+    async function performDNSQuery(providerUrl, domain) {
+      const isGoogle = providerUrl.includes('dns.google');
+      let url = `${providerUrl}?name=${domain}&type=A`;
+
+      try {
+        const headers = isGoogle ? {} : {'accept': 'application/dns-json'};
+        const res = await fetch(url, {headers});
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+
+        const data = await res.json();
+        let ips = [];
+
+        if (isGoogle) {
+          ips = (data.Answer || []).filter(a => a.type === 1).map(a => a.data);
+        } else {
+          ips = (data.Answer || []).filter(a => a.type === 1).map(a => a.data);
+        }
+
+        if (ips.length === 0) return alert('Aレコードが見つかりませんでした（ブロックされている可能性も）');
+
+        document.getElementById('ipv4Input').value = ips.join('\n');
+        alert(`取得したIPv4 (${ips.length}件):\n${ips.join('\n')}\n→ 上の入力欄にセットしました！変換ボタン押してね`);
+        convertMultiple();
+      } catch (e) {
+        alert('クエリ失敗: ' + e.message + '\nURLが正しいか、DoH対応か確認してください');
+      }
+    }
 
     // Ctrl+Enterで変換
     document.getElementById('ipv4Input').addEventListener('keydown', e => {
