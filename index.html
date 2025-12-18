@@ -3,38 +3,137 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>calculate Cloudflare IPv4 to IPv6</title>
+  <title>Cloudflare IPv4 → IPv6 変換ツール (Discord IPv6回避用)</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
-    h1 { text-align: center; }
-    input { width: 100%; padding: 12px; font-size: 18px; box-sizing: border-box; }
-    button { margin-top: 12px; padding: 12px 20px; font-size: 18px; width: 100%; background: #1a73e8; color: white; border: none; cursor: pointer; }
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; background: #f9f9f9; }
+    h1, h2 { text-align: center; }
+    textarea, input, select { width: 100%; padding: 12px; font-size: 16px; box-sizing: border-box; margin-bottom: 10px; }
+    button { padding: 12px 20px; font-size: 16px; background: #1a73e8; color: white; border: none; cursor: pointer; margin: 5px 0; }
     button:hover { background: #1557b0; }
-    #result { margin-top: 20px; padding: 15px; background: white; border: 1px solid #ddd; font-size: 20px; word-break: break-all; }
-    .copy-btn { margin-top: 10px; padding: 8px 16px; background: #eee; border: 1px solid #ccc; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; }
+    th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+    #result { margin-top: 20px; }
+    .copy-btn { padding: 6px 12px; background: #eee; border: 1px solid #ccc; cursor: pointer; font-size: 14px; }
     footer { margin-top: 50px; text-align: center; color: #666; font-size: 14px; }
   </style>
 </head>
 <body>
   <h1>Cloudflare IPv4 → IPv6 変換ツール</h1>
-  <p>CloudflareのAnycast IPv4アドレスから対応するIPv6を計算します（プレフィックス: 2606:4700::）</p>
-  <input type="text" id="ipv4" placeholder="例: 1.1.1.1 または 104.16.100.200">
-  <button onclick="convert()">変換する</button>
+  <p>DiscordのIPv6接続問題回避用。Cloudflare Anycast IPv4から対応IPv6を計算します。</p>
+
+  <h2>1. IPv4からIPv6変換（複数行対応）</h2>
+  <select id="prefixSelect">
+    <option value="2606:4700::">2606:4700:: (標準)</option>
+    <option value="2606:4700:4700::4700">2606:4700:4700::4700 (拡張)</option>
+  </select>
+  <textarea id="ipv4Input" rows="6" placeholder="例:&#10;1.1.1.1&#10;104.16.18.43&#10;104.16.20.43"></textarea>
+  <button onclick="convertMultiple()">一括変換</button>
+
   <div id="result"></div>
 
+  <h2>2. ドメインからIPv4取得 → IPv6変換（DoH使用）</h2>
+  <input type="text" id="domainInput" placeholder="例: discord.com">
+  <select id="dohProvider">
+    <option value="https://cloudflare-dns.com/dns-query">Cloudflare (1.1.1.1)</option>
+    <option value="https://dns.google/resolve">Google (8.8.8.8)</option>
+    <option value="https://dns.quad9.net/dns-query">Quad9 (9.9.9.9)</option>
+  </select>
+  <button onclick="queryDNS()">Aレコード取得 & IPv6変換</button>
+
+  <h2>hostsファイル編集例（コピペ用）</h2>
+  <pre id="hostsExample" style="background:#fff;padding:15px;overflow:auto;">
+# Discord IPv6 workaround (Cloudflare Anycast) - 更新日: 2025/12
+2606:4700::6810:122b  discord.com
+2606:4700::6810:122b  discordapp.com
+2606:4700::6810:122b  discord.media
+2606:4700::6810:142b  gateway.discord.gg
+2606:4700::6810:152b  media.discordapp.net
+# 必要に応じてツールで最新IPv4取得して置き換え！
+  </pre>
+  <button onclick="navigator.clipboard.writeText(document.getElementById('hostsExample').innerText)">hosts例をコピー</button>
+
   <footer>
-    Made for Discord IPv6 workaround | <a href="https://support.discord.com/hc/en-us/community/posts/360047840052">参考リクエスト</a>
+    Made for Discord IPv6 workaround | <a href="https://support.discord.com/hc/en-us/community/posts/360047840052">参考リクエスト</a> | 
+    <a href="https://7grn.github.io/cf-ipv4-to-ipv6-3375/">ツールURL</a>
   </footer>
 
   <script>
-    const CF_IP_PREFIX = "2606:4700::";
+    const prefixes = {
+      "2606:4700::": "2606:4700::",
+      "2606:4700:4700::4700": "2606:4700:4700::4700"
+    };
 
-    function convert() {
-      const input = document.getElementById('ipv4').value.trim();
-      const parts = input.split('.').map(Number);
+    function convertIPv4ToIPv6(ipv4, prefix) {
+      const parts = ipv4.split('.').map(Number);
+      if (parts.length !== 4 || parts.some(n => isNaN(n) || n < 0 || n > 255)) return null;
 
-      if (parts.length !== 4 || parts.some(n => isNaN(n) || n < 0 || n > 255)) {
-        document.getElementById('result').innerHTML = "<span style='color:red;'>無効なIPv4アドレスです</span>";
+      let ipv6 = prefix;
+      for (let i = 0; i < 4; i++) {
+        if (prefix === "2606:4700::" && i === 2) ipv6 += ":";
+        if (prefix === "2606:4700:4700::4700" && i === 2) ipv6 += "4700:";
+        ipv6 += parts[i].toString(16).padStart(2, "0");
+      }
+      return ipv6;
+    }
+
+    function convertMultiple() {
+      const prefix = document.getElementById('prefixSelect').value;
+      const input = document.getElementById('ipv4Input').value.trim();
+      const lines = input.split('\n').filter(line => line.trim());
+
+      let html = '<table><tr><th>IPv4</th><th>IPv6 (' + prefix + ')</th><th>操作</th></tr>';
+      lines.forEach(line => {
+        const ipv6 = convertIPv4ToIPv6(line.trim(), prefix);
+        if (ipv6) {
+          html += `<tr><td>${line}</td><td>${ipv6}</td><td><button class="copy-btn" onclick="navigator.clipboard.writeText('${ipv6}')">コピー</button></td></tr>`;
+        } else {
+          html += `<tr><td colspan="3" style="color:red;">無効: ${line}</td></tr>`;
+        }
+      });
+      html += '</table>';
+      document.getElementById('result').innerHTML = html;
+    }
+
+    async function queryDNS() {
+      const domain = document.getElementById('domainInput').value.trim();
+      const provider = document.getElementById('dohProvider').value;
+      if (!domain) return alert('ドメインを入力してください');
+
+      let url;
+      if (provider.includes('google')) {
+        url = `${provider}?name=${domain}&type=A`;
+      } else {
+        url = `${provider}?name=${domain}&type=A`;
+        // Cloudflare/Quad9はapplication/dns-jsonが必要
+      }
+
+      try {
+        const headers = provider.includes('google') ? {} : {'accept': 'application/dns-json'};
+        const res = await fetch(url, {headers});
+        const data = await res.json();
+
+        let ips = [];
+        if (provider.includes('google')) {
+          ips = data.Answer ? data.Answer.filter(a => a.type === 1).map(a => a.data) : [];
+        } else {
+          ips = data.Answer ? data.Answer.filter(a => a.type === 1).map(a => a.data) : [];
+        }
+
+        if (ips.length === 0) return alert('Aレコードが見つかりませんでした');
+
+        document.getElementById('ipv4Input').value = ips.join('\n');
+        alert(`取得したIPv4 (${ips.length}件):\n${ips.join('\n')}\n→ 上の入力欄にセットしました！変換ボタン押してね`);
+        convertMultiple(); // 自動変換も
+      } catch (e) {
+        alert('クエリ失敗: ' + e.message);
+      }
+    }
+
+    // Enterキー対応
+    document.getElementById('ipv4Input').addEventListener('keypress', e => { if (e.key === 'Enter' && e.ctrlKey) convertMultiple(); });
+  </script>
+</body>
+</html>        document.getElementById('result').innerHTML = "<span style='color:red;'>無効なIPv4アドレスです</span>";
         return;
       }
 
